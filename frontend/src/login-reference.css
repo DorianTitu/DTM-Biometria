@@ -1,0 +1,16 @@
+/* Login composition inspired by enterprise access portals */
+.login-page{grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);background:#f7f8f7}
+.login-visual{background-image:linear-gradient(90deg,rgba(7,28,36,.78),rgba(7,28,36,.42)),url('/login-access-bg.png');background-size:cover;background-position:center;min-height:100dvh}
+.login-visual:after{content:'';position:absolute;z-index:1;top:0;right:0;bottom:0;width:58%;background:linear-gradient(90deg,rgba(15,46,57,0),rgba(15,46,57,.12) 32%,rgba(247,248,247,.72) 76%,rgba(247,248,247,1) 100%);pointer-events:none}
+.login-visual:before{background:linear-gradient(180deg,rgba(5,22,29,.2),rgba(5,22,29,.72)),linear-gradient(90deg,rgba(5,22,29,.12),rgba(5,22,29,0))}
+.logo-frame{width:170px;height:170px;padding:0;margin:0;align-self:flex-start;background:transparent;box-shadow:none;display:grid;place-items:center}.visual-content img{width:170px;height:170px;object-fit:contain;border:0;box-shadow:none;display:block}
+.visual-content>span{margin-top:22px;color:#8ce4ce;font-size:11px}
+.visual-content p{font-size:clamp(21px,2.35vw,30px);line-height:1.12;max-width:18ch;text-shadow:0 2px 18px #0008}
+.login-panel{background:rgba(255,255,255,.94)}
+.login-form-wrap{max-width:410px}
+.login-form-wrap h1{font-size:clamp(32px,3.4vw,40px);font-weight:500}
+.login-form-wrap>p{font-size:15px;margin-bottom:34px}
+.login-form-wrap input{border-color:#d1d9d9;border-radius:5px;padding:14px 15px;background:#fff}
+.login-form-wrap input:focus{border-color:#0e6e7d;box-shadow:0 0 0 3px #0e6e7d20}
+.login-btn{border-radius:5px;padding:14px 18px;min-height:48px}
+@media(max-width:900px){.login-visual{display:flex;min-height:230px;padding:28px 24px}.visual-content{margin:0}.logo-frame{width:90px;height:90px}.visual-content img{width:90px;height:90px}.visual-content p{font-size:23px}.visual-footer{display:none}}
