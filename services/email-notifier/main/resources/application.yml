@@ -1,0 +1,31 @@
+server:
+  port: ${SERVER_PORT:8082}
+spring:
+  application:
+    name: dmt-email-notifier
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:dmt}
+    password: ${RABBITMQ_PASSWORD:dmt_dev_password}
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/dmt_biometria}
+    username: ${DB_USERNAME:dmt}
+    password: ${DB_PASSWORD:dmt_dev_password}
+  mail:
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:2525}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+      mail.smtp.connectiontimeout: ${SMTP_TIMEOUT_MS:15000}
+      mail.smtp.timeout: ${SMTP_TIMEOUT_MS:15000}
+      mail.smtp.writetimeout: ${SMTP_TIMEOUT_MS:15000}
+dmt:
+  notifications:
+    poll-ms: ${NOTIFICATION_POLL_MS:10000}
+logging:
+  pattern:
+    console: '%d{yyyy-MM-dd HH:mm:ss.SSSXXX} %-5level [%thread] %logger{36} - %msg%n'

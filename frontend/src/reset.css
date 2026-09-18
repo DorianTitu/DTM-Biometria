@@ -1,0 +1,41 @@
+.btn-danger {
+  background: #fff;
+  border: 1px solid #d9a39b;
+  color: #b3402f;
+}
+
+.btn-danger:hover {
+  background: #fff3f1;
+  box-shadow: none;
+}
+
+.reset-overlay {
+  align-items: center;
+  justify-content: center;
+}
+
+.reset-dialog {
+  width: min(540px, calc(100vw - 36px));
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 28px 80px rgba(5, 24, 31, .32);
+  padding: 28px;
+  font-family: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+}
+
+.reset-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.reset-dialog h2 { font-family: 'Space Grotesk', sans-serif; letter-spacing: -.025em; margin: 7px 0 0; color: #17262c; font-size: 25px; }
+.danger-text { color: #b3402f; }
+.reset-dialog p { color: #52656c; line-height: 1.55; margin: 0 0 12px; }
+.reset-dialog-note { font-size: 13px; }
+.reset-dialog label { display: flex; flex-direction: column; gap: 8px; color: #40516b; font-size: 13px; font-weight: 700; margin-top: 22px; }
+.reset-dialog label strong { color: #17262c; }
+.reset-dialog input { border: 1px solid #d9a39b; border-radius: 7px; color: #17262c; font: inherit; outline: none; padding: 12px; }
+.reset-dialog input:focus { border-color: #b3402f; box-shadow: 0 0 0 3px rgba(179,64,47,.14); }
