@@ -1,0 +1,21 @@
+services:
+  admin-api:
+    build: .
+    container_name: zkteco-admin-api
+    ports: ["8090:8090"]
+    environment:
+      DB_URL: jdbc:postgresql://zkteco-postgres:5432/biometric
+      DB_USERNAME: ${DB_USERNAME:-biometric}
+      DB_PASSWORD: ${DB_PASSWORD:-biometric_dev_password}
+      JWT_SECRET: ${JWT_SECRET:-local-development-only-secret-change-before-production-2026}
+      JWT_TTL_MINUTES: ${JWT_TTL_MINUTES:-30}
+  admin-web:
+    build: ../zkteco-admin-web
+    container_name: zkteco-admin-web
+    ports: ["3000:80"]
+    depends_on: [admin-api]
+
+networks:
+  default:
+    name: zkteco-auth-listener_default
+    external: true

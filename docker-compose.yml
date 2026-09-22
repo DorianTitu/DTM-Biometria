@@ -1,91 +1,104 @@
 services:
-  db:
-    image: postgres:17
+  postgres:
+    image: postgres:16-alpine
+    container_name: zkteco-postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: dmt_biometria
-      POSTGRES_USER: dmt
-      POSTGRES_PASSWORD: dmt_dev_password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+      POSTGRES_DB: biometric
+      POSTGRES_USER: biometric
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-biometric_dev_password}
     ports:
-      - "15432:5432"
+      - "5433:5432"
+    volumes:
+      - biometric_admin_data:/var/lib/postgresql/data
+      - ./zkteco-admin-api/db:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dmt -d dmt_biometria"]
+      test: ["CMD-SHELL", "pg_isready -U biometric -d biometric"]
       interval: 5s
       timeout: 5s
       retries: 10
-  backend:
-    image: python:3.12-slim
-    working_dir: /app
-    volumes:
-      - ./backend:/app
-    environment:
-      JWT_SECRET: ${JWT_SECRET:-change-this-secret}
-      LISTENER_API_KEY: ${LISTENER_API_KEY:-change-this-listener-key}
-      DATABASE_URL: postgresql://dmt:dmt_dev_password@db:5432/dmt_biometria
-    command: sh -c "pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000"
-    ports:
-      - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-  frontend:
-    image: node:22-alpine
-    working_dir: /app
-    volumes:
-      - ./frontend:/app
-      - frontend_node_modules:/app/node_modules
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
-    ports:
-      - "5173:5173"
-    depends_on:
-      - backend
+
   rabbitmq:
     image: rabbitmq:3-management
-    environment:
-      RABBITMQ_DEFAULT_USER: dmt
-      RABBITMQ_DEFAULT_PASS: dmt_dev_password
+    container_name: zkteco-rabbitmq
     restart: unless-stopped
-  zkteco-listener:
-    build: ./services/zkteco-listener
-    environment:
-      DMT_BACKEND_URL: http://backend:8000
-      LISTENER_API_KEY: ${LISTENER_API_KEY:-change-this-listener-key}
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USERNAME: dmt
-      RABBITMQ_PASSWORD: dmt_dev_password
-      TZ: America/Guayaquil
     ports:
-      - "8085:8082"
-    depends_on:
-      - rabbitmq
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  auth-listener:
+    build: ./zkteco-auth-listener
+    container_name: zkteco-auth-listener
     restart: unless-stopped
-  email-notifier:
-    build: ./services/email-notifier
+    ports: ["8083:8082"]
     environment:
-      DB_URL: jdbc:postgresql://db:5432/dmt_biometria
-      DB_USERNAME: dmt
-      DB_PASSWORD: dmt_dev_password
-      MAIL_ENABLED: ${MAIL_ENABLED:-false}
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USERNAME: ${SMTP_USERNAME:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM: ${SMTP_FROM:-}
-      INSTITUTION_NAME: ${INSTITUTION_NAME:-Institución Educativa}
-      MAIL_TEST_RECIPIENTS: ${MAIL_TEST_RECIPIENTS:-}
-      DMT_BACKEND_URL: http://backend:8000
-      LISTENER_API_KEY: ${LISTENER_API_KEY:-change-this-listener-key}
       RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USERNAME: dmt
-      RABBITMQ_PASSWORD: dmt_dev_password
-      TZ: America/Guayaquil
+      DMT_BACKEND_URL: http://admin-api:8000
+      LISTENER_API_KEY: ${LISTENER_API_KEY:-local-development-listener-key}
     depends_on:
-      db:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_started
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      admin-api: { condition: service_started }
+
+  email-notifier:
+    build: ./zkteco-email-notifier
+    container_name: zkteco-email-notifier
     restart: unless-stopped
+    ports: ["8084:8082"]
+    env_file:
+      - path: ./zkteco-email-notifier/.env
+        required: false
+    environment:
+      SERVER_PORT: 8082
+      TZ: America/Guayaquil
+      RABBITMQ_HOST: rabbitmq
+      DB_URL: jdbc:postgresql://postgres:5432/biometric
+      DB_USERNAME: biometric
+      DB_PASSWORD: ${DB_PASSWORD:-biometric_dev_password}
+      DMT_BACKEND_URL: http://admin-api:8000
+      LISTENER_API_KEY: ${LISTENER_API_KEY:-local-development-listener-key}
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  cloud-relay:
+    build: ./cloud-relay
+    container_name: zkteco-cloud-relay
+    restart: unless-stopped
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USERNAME: guest
+      RABBITMQ_PASSWORD: guest
+      RABBITMQ_QUEUE: zkteco.auth.events
+      CLOUD_API_URL: ${CLOUD_API_URL:-http://admin-api:8000}
+      CLOUD_API_KEY: ${CLOUD_API_KEY:-local-development-listener-key}
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      admin-api: { condition: service_started }
+
+  admin-api:
+    build: ./zkteco-admin-api
+    container_name: zkteco-admin-api
+    restart: unless-stopped
+    ports: ["8000:8000"]
+    environment:
+      DATABASE_URL: postgresql://biometric:${DB_PASSWORD:-biometric_dev_password}@postgres:5432/biometric
+      JWT_SECRET: ${JWT_SECRET:-local-development-only-secret-change-before-production}
+      LISTENER_API_KEY: ${LISTENER_API_KEY:-local-development-listener-key}
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  admin-web:
+    build: ./zkteco-admin-web
+    container_name: zkteco-admin-web
+    restart: unless-stopped
+    ports: ["5173:80"]
+    depends_on: [admin-api]
+
 volumes:
-  postgres_data:
-  frontend_node_modules:
+  biometric_admin_data:

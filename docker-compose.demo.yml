@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: biometric
+      POSTGRES_USER: biometric
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env.demo}
+    volumes:
+      - demo_biometric_data:/var/lib/postgresql/data
+      - ./zkteco-email-notifier/db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U biometric -d biometric"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  admin-api:
+    build: ./zkteco-admin-api
+    restart: unless-stopped
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/biometric
+      DB_USERNAME: biometric
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env.demo}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env.demo}
+      JWT_TTL_MINUTES: 30
+      REPORTS_DEMO: "true"
+      DEMO_ADMIN_USERNAME: ${DEMO_ADMIN_USERNAME:-report.admin}
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:?Set DEMO_ADMIN_PASSWORD in .env.demo}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  admin-web:
+    build: ./zkteco-admin-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-80}:80"
+    depends_on:
+      - admin-api
+
+volumes:
+  demo_biometric_data:

@@ -1,0 +1,34 @@
+server:
+  port: ${SERVER_PORT:8082}
+spring:
+  application:
+    name: zkteco-auth-listener
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/biometric}
+    username: ${DB_USERNAME:biometric}
+    password: ${DB_PASSWORD:biometric_dev_password}
+  mail:
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:2525}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+      mail.smtp.timeout: ${SMTP_TIMEOUT_MS:15000}
+dmt:
+  notifications:
+    poll-ms: ${NOTIFICATION_POLL_MS:10000}
+zkteco:
+  institution:
+    name: ${INSTITUTION_NAME:Institución Educativa}
+    footer: ${INSTITUTION_FOOTER:Este mensaje fue generado automáticamente. No responda a este correo.}
+  listener:
+    server-version: ${ZKTECO_SERVER_VERSION:3.0.1}
+    push-protocol-version: ${ZKTECO_PUSH_PROTOCOL_VERSION:2.4.1}
+logging:
+  pattern:
+    console: '%d{yyyy-MM-dd HH:mm:ss.SSSXXX} %-5level [%thread] %logger{36} - %msg%n'

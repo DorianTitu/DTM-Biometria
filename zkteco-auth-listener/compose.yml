@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: zkteco-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: biometric
+      POSTGRES_USER: biometric
+      POSTGRES_PASSWORD: biometric_dev_password
+    ports: ["5433:5432"]
+    volumes:
+      - ../zkteco-email-notifier/db/init:/docker-entrypoint-initdb.d:ro
+      - biometric_data:/var/lib/postgresql/data
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: zkteco-rabbitmq
+    restart: unless-stopped
+    ports: ["5672:5672", "15672:15672"]
+  zkteco-auth-listener:
+    build: .
+    container_name: zkteco-auth-listener
+    restart: unless-stopped
+    ports:
+      - "8083:8082"
+    environment:
+      NOTIFIER_URL: http://zkteco-email-notifier:8082/iclock/notify
+      RABBITMQ_HOST: rabbitmq
+      DB_URL: jdbc:postgresql://postgres:5432/biometric
+      DB_USERNAME: biometric
+      DB_PASSWORD: biometric_dev_password
+  zkteco-email-notifier:
+    build: ../zkteco-email-notifier
+    image: zkteco-email-notifier:latest
+    container_name: zkteco-email-notifier
+    restart: unless-stopped
+    env_file:
+      - ../zkteco-email-notifier/.env
+    ports:
+      - "8084:8082"
+    environment:
+      SERVER_PORT: 8082
+      TZ: America/Guayaquil
+      RABBITMQ_HOST: rabbitmq
+      DB_URL: jdbc:postgresql://postgres:5432/biometric
+      DB_USERNAME: biometric
+      DB_PASSWORD: biometric_dev_password
+      SMTP_TO: dorian.tituana@epn.edu.ec
+volumes:
+  biometric_data:

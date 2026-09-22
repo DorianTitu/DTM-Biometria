@@ -1,0 +1,32 @@
+server:
+  port: 8090
+
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/biometric}
+    username: ${DB_USERNAME:biometric}
+    password: ${DB_PASSWORD:biometric_dev_password}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    # DTOs for the administrative lists traverse their related academic entities.
+    open-in-view: true
+  sql:
+    init:
+      mode: always
+
+app:
+  jwt:
+    # Set JWT_SECRET to a unique, cryptographically random value of at least 32 bytes in production.
+    secret: ${JWT_SECRET:local-development-only-secret-change-before-production-2026}
+    ttl-minutes: ${JWT_TTL_MINUTES:30}
+  auth:
+    max-failed-attempts: ${AUTH_MAX_FAILED_ATTEMPTS:5}
+    lock-minutes: ${AUTH_LOCK_MINUTES:15}
+    rate-limit:
+      attempts: ${LOGIN_RATE_LIMIT_ATTEMPTS:10}
+      window-seconds: ${LOGIN_RATE_LIMIT_WINDOW_SECONDS:60}
+  attendance:
+    late-after: ${ATTENDANCE_LATE_AFTER:08:00}
+  reports:
+    demo: ${REPORTS_DEMO:false}

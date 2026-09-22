@@ -1,0 +1,1 @@
+package ec.dmt.admin.school; import org.springframework.data.jpa.repository.JpaRepository; import java.time.Instant; import java.util.*; public interface AttendanceEventRepository extends JpaRepository<AttendanceEvent,Long>{List<AttendanceEvent> findByEventTimeBetween(Instant from,Instant to);}

@@ -1,0 +1,1 @@
+package ec.dmt.admin.school; import org.springframework.data.jpa.repository.JpaRepository; public interface EnrollmentRepository extends JpaRepository<Enrollment,Long>{boolean existsByStudentIdAndAcademicYearId(Long studentId,Long yearId);}

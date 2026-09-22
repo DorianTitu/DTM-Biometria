@@ -1,0 +1,3 @@
+package ec.dmt.admin.school;
+import ec.dmt.admin.user.AppUser; import jakarta.persistence.*;
+@Entity @Table(name="inspector_course",uniqueConstraints=@UniqueConstraint(columnNames={"user_id","course_id"})) public class InspectorCourse { @Id @GeneratedValue(strategy=GenerationType.IDENTITY) private Long id; @ManyToOne(fetch=FetchType.EAGER) @JoinColumn(name="user_id",nullable=false) private AppUser user; @ManyToOne(fetch=FetchType.EAGER) @JoinColumn(name="course_id",nullable=false) private Course course; protected InspectorCourse(){} public InspectorCourse(AppUser u,Course c){user=u;course=c;} public Long getId(){return id;} public AppUser getUser(){return user;} public Course getCourse(){return course;} }

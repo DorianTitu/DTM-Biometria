@@ -1,0 +1,1 @@
+package ec.dmt.admin.school; import org.springframework.data.jpa.repository.JpaRepository; import java.util.*; public interface InspectorCourseRepository extends JpaRepository<InspectorCourse,Long>{List<InspectorCourse> findByUserUsername(String username); boolean existsByUserIdAndCourseId(Long userId,Long courseId);}
