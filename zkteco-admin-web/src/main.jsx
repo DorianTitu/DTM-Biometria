@@ -6,7 +6,9 @@ import './polish.css';
 import './login-reference.css';
 import './reset.css';
 
-const API=import.meta.env.VITE_API_URL||'http://localhost:8000';
+// En producción Nginx publica el frontend y reenvía /api al contenedor admin-api.
+// Un origen relativo evita que el navegador del usuario intente llamar a su propio localhost.
+const API=import.meta.env.VITE_API_URL||'';
 const EMPTY_STUDENT={biometric_id:'',first_name:'',last_name:'',course_id:1,email:''};
 const EMPTY_INSPECTOR={first_name:'',last_name:'',username:'',email:'',type:'CURSO',course_ids:[1]};
 
