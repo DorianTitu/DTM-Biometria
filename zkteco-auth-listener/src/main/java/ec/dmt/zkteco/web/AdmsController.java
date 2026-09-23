@@ -38,7 +38,6 @@ public class AdmsController {
     public ResponseEntity<String> cdata(@RequestParam(name = "SN", defaultValue = "") String serial,
                                          @RequestParam(name = "table", defaultValue = "") String table,
                                          HttpServletRequest request) throws IOException {
-        log.info("[ADMS_REQUEST] method={} path={} remote={} SN={} table={} contentType={}", request.getMethod(), request.getRequestURI(), request.getRemoteAddr(), serial, table, request.getContentType());
         if (!isSupportedLog(table)) {
             return ResponseEntity.ok("OK");
         }
@@ -69,7 +68,6 @@ public class AdmsController {
     public ResponseEntity<String> acdata(@RequestParam(name = "SN", defaultValue = "") String serial,
                                          @RequestParam(name = "table", defaultValue = "ACLOG") String table,
                                          HttpServletRequest request) throws IOException {
-        log.info("[AC_REQUEST] method={} path={} remote={} SN={} table={} contentType={}", request.getMethod(), request.getRequestURI(), request.getRemoteAddr(), serial, table, request.getContentType());
         return cdata(serial, table, request);
     }
 
@@ -93,7 +91,6 @@ public class AdmsController {
             log.warn("[CA_EVENT_IGNORED] No se encontró pin en payload: {}", line);
             return;
         }
-        log.info("[CA_EVENT] SN={} pin={} event={} inoutstatus={} verifytype={}", serial, pin, event, value(line, "inoutstatus"), verify);
         service.record(serial, pin, time, verify, event);
     }
 

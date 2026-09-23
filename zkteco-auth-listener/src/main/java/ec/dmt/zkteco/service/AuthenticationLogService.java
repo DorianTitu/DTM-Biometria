@@ -21,7 +21,6 @@ public class AuthenticationLogService {
                                       int verifyType, int status) {
         AuthenticationEvent event = new AuthenticationEvent(
                 sequence.incrementAndGet(), deviceSerial, userId, parseDateTime(dateTime), verifyType, status);
-        log.info("Hola usuario id: {}", event.userId());
         publisher.publish(event);
         log.info("[AUTH_OK] eventId={} userId={} device={} authenticatedAt={} verifyType={} status={}",
                 event.eventId(), event.userId(), event.deviceSerial(), event.authenticatedAt(),
