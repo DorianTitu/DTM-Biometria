@@ -1,0 +1,52 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: zkteco-rabbitmq-local
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  auth-listener:
+    build:
+      context: ./zkteco-auth-listener
+    container_name: zkteco-auth-listener-local
+    restart: unless-stopped
+    ports:
+      - "8083:8082"
+    environment:
+      SERVER_PORT: 8082
+      TZ: America/Guayaquil
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      ZKTECO_PROTOCOL_MODE: DUAL
+      ZKTECO_SERVER_VERSION: 3.0.1
+      ZKTECO_PUSH_PROTOCOL_VERSION: 2.4.1
+      LISTENER_API_KEY: ${LISTENER_API_KEY:?Defina LISTENER_API_KEY en .env}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  cloud-relay:
+    build:
+      context: ./cloud-relay
+    container_name: zkteco-cloud-relay-local
+    restart: unless-stopped
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: guest
+      RABBITMQ_PASSWORD: guest
+      RABBITMQ_QUEUE: zkteco.auth.events
+      # Solo el dominio base; relay.py agrega /api/attendance/events.
+      CLOUD_API_URL: ${CLOUD_API_URL:-https://dmt-security.systems}
+      CLOUD_API_KEY: ${CLOUD_API_KEY:?Defina CLOUD_API_KEY en .env}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
