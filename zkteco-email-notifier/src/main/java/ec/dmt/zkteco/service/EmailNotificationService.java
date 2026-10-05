@@ -61,19 +61,24 @@ public class EmailNotificationService {
             }
             var eventTime = "ENTRY".equals(notification.type()) ? student.entry() : student.exit();
             String when = eventTime == null ? notification.date().toString() : eventTime.atZoneSameInstant(ZoneId.of("America/Guayaquil")).format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"));
-            String action = "ENTRY".equals(notification.type()) ? "ha ingresado" : "ha salido";
             var mail = sender.createMimeMessage(); var helper = new MimeMessageHelper(mail, true, "UTF-8");
             helper.setFrom(from); helper.setTo((testRecipients.isEmpty() ? List.of(student.email()) : testRecipients).toArray(String[]::new));
             helper.setSubject(("ENTRY".equals(notification.type()) ? "Ingreso" : "Salida") + " registrada - " + student.fullName());
-            String html = "<div style='margin:0;background:#f4f6f8;padding:24px 10px;font-family:Arial,Helvetica,sans-serif;color:#172b4d'>" +
-                    "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='max-width:680px;margin:auto;background:#fff;border:1px solid #e1e7ee;border-radius:12px;overflow:hidden'>" +
-                    "<tr><td style='padding:0;background:#fff;text-align:center'><img src='cid:institution-header' alt='" + esc(institutionName) + "' width='620' style='display:block;width:100%;max-width:620px;height:auto;margin:0 auto'></td></tr>" +
-                    "<tr><td style='padding:30px 34px 26px'><p style='margin:0 0 18px;font-size:15px;color:#334e68'>Estimado representante:</p>" +
-                    "<h1 style='font-size:25px;line-height:1.25;margin:0 0 12px;color:#123f6d'>" + ("ENTRY".equals(notification.type()) ? "Ingreso registrado" : "Salida registrada") + "</h1>" +
-                    "<p style='font-size:16px;line-height:1.6;margin:0 0 22px;color:#425466'>Le informamos que <strong>" + esc(student.fullName()) + "</strong> " + action + " de la institución.</p>" +
-                    "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='background:#eef5fb;border-radius:10px'><tr><td style='padding:16px 18px'><div style='font-size:11px;color:#60758b;text-transform:uppercase;letter-spacing:1px'>Curso</div><div style='font-size:16px;font-weight:bold;margin-top:5px;color:#172b4d'>" + esc(student.course()) + "</div></td><td style='padding:16px 18px'><div style='font-size:11px;color:#60758b;text-transform:uppercase;letter-spacing:1px'>Fecha y hora</div><div style='font-size:16px;font-weight:bold;margin-top:5px;color:#172b4d'>" + when + "</div></td></tr></table>" +
-                    "</td></tr><tr><td style='padding:18px 26px 8px;background:#fafbfc;text-align:center;border-top:1px solid #edf1f5'><img src='cid:dmt-footer' alt='DMT Sistemas Automatizados de Seguridad' width='250' style='display:block;width:250px;max-width:80%;height:auto;margin:0 auto;opacity:.78'></td></tr>" +
-                    "<tr><td style='padding:4px 26px 22px;background:#fafbfc;text-align:center;color:#718096;font-size:11px;line-height:1.5'>Mensaje automático de " + esc(institutionName) + ".<br>Por favor, no responda a este correo.</td></tr></table></div>";
+            String title = "ENTRY".equals(notification.type()) ? "Ingreso registrado" : "Salida registrada";
+            String action = "ENTRY".equals(notification.type()) ? "ha ingresado" : "ha salido";
+            String html = "<div style='margin:0;background:#f4f6f8;padding:24px 10px;font-family:Arial,Helvetica,sans-serif;color:#425466'>" +
+                    "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='max-width:680px;margin:auto;background:#fff;border:1px solid #dfe6ed;border-radius:14px;overflow:hidden'>" +
+                    "<tr><td style='padding:0;background:#fff;text-align:center'><img src='cid:institution-header' alt='Unidad Educativa Técnico Salesiano Don Bosco' width='620' style='display:block;width:100%;max-width:620px;height:auto;margin:0 auto'></td></tr>" +
+                    "<tr><td style='padding:34px 34px 28px'>" +
+                    "<p style='margin:0 0 22px;font-size:17px;line-height:1.5;color:#425466'>Estimado representante:</p>" +
+                    "<p style='margin:0 0 22px;font-size:17px;line-height:1.6;color:#425466'>Le informamos que <strong style='color:#243b53'>" + esc(student.fullName()) + "</strong> " + action + " de la institución.</p>" +
+                    "<h1 style='font-size:27px;line-height:1.25;margin:0 0 24px;color:#123f6d;font-weight:700'>" + title + "</h1>" +
+                    "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='background:#eef5fb;border-radius:12px'><tr>" +
+                    "<td width='50%' style='padding:20px 22px;vertical-align:top'><div style='font-size:12px;color:#60758b;text-transform:uppercase;letter-spacing:1.2px'>Curso</div><div style='font-size:19px;line-height:1.25;font-weight:700;margin-top:8px;color:#172b4d'>" + esc(student.course()) + "</div></td>" +
+                    "<td width='50%' style='padding:20px 22px;vertical-align:top'><div style='font-size:12px;color:#60758b;text-transform:uppercase;letter-spacing:1.2px'>Fecha y hora</div><div style='font-size:19px;line-height:1.35;font-weight:700;margin-top:8px;color:#172b4d'>" + when.replace(" ", "<br>") + "</div></td>" +
+                    "</tr></table></td></tr>" +
+                    "<tr><td style='padding:20px 24px 8px;background:#fff;border-top:1px solid #edf1f5;text-align:center'><img src='cid:dmt-footer' alt='DMT Sistemas Automatizados de Seguridad' width='620' style='display:block;width:100%;max-width:620px;height:auto;margin:0 auto'></td></tr>" +
+                    "<tr><td style='padding:4px 26px 24px;background:#fff;text-align:center;color:#718096;font-size:12px;line-height:1.6'>Mensaje automático de " + esc(institutionName) + ".<br>Por favor, no responda a este correo.</td></tr></table></div>";
             helper.setText(html, true);
             helper.addInline("institution-header", new ClassPathResource("static/email/institution-header.jpg"), "image/jpeg");
             helper.addInline("dmt-footer", new ClassPathResource("static/email/dmt-footer.png"), "image/png");
