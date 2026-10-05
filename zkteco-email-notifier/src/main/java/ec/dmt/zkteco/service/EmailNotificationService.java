@@ -65,13 +65,15 @@ public class EmailNotificationService {
             helper.setFrom(from); helper.setTo((testRecipients.isEmpty() ? List.of(student.email()) : testRecipients).toArray(String[]::new));
             helper.setSubject(("ENTRY".equals(notification.type()) ? "Ingreso" : "Salida") + " registrada - " + student.fullName());
             String title = "ENTRY".equals(notification.type()) ? "Ingreso registrado" : "Salida registrada";
-            String action = "ENTRY".equals(notification.type()) ? "ha ingresado" : "ha salido";
+            String action = "ENTRY".equals(notification.type())
+                    ? "ha ingresado a la institución"
+                    : "ha salido de la institución";
             String html = "<div style='margin:0;background:#f4f6f8;padding:24px 10px;font-family:Arial,Helvetica,sans-serif;color:#425466'>" +
                     "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='max-width:680px;margin:auto;background:#fff;border:1px solid #dfe6ed;border-radius:14px;overflow:hidden'>" +
                     "<tr><td style='padding:0;background:#fff;text-align:center'><img src='cid:institution-header' alt='Unidad Educativa Técnico Salesiano Don Bosco' width='620' style='display:block;width:100%;max-width:620px;height:auto;margin:0 auto'></td></tr>" +
                     "<tr><td style='padding:34px 34px 28px'>" +
                     "<p style='margin:0 0 22px;font-size:17px;line-height:1.5;color:#425466'>Estimado representante:</p>" +
-                    "<p style='margin:0 0 22px;font-size:17px;line-height:1.6;color:#425466'>Le informamos que <strong style='color:#243b53'>" + esc(student.fullName()) + "</strong> " + action + " de la institución.</p>" +
+                    "<p style='margin:0 0 22px;font-size:17px;line-height:1.6;color:#425466'>Le informamos que <strong style='color:#243b53'>" + esc(student.fullName()) + "</strong> " + action + ".</p>" +
                     "<h1 style='font-size:27px;line-height:1.25;margin:0 0 24px;color:#123f6d;font-weight:700'>" + title + "</h1>" +
                     "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='background:#eef5fb;border-radius:12px'><tr>" +
                     "<td width='50%' style='padding:20px 22px;vertical-align:top'><div style='font-size:12px;color:#60758b;text-transform:uppercase;letter-spacing:1.2px'>Curso</div><div style='font-size:19px;line-height:1.25;font-weight:700;margin-top:8px;color:#172b4d'>" + esc(student.course()) + "</div></td>" +
