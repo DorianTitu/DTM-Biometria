@@ -41,7 +41,7 @@ def attendance_writer(request:Request):
                 return {'role':'LISTENER','api_key_id':key['id']}
     return current_admin(request)
 class Login(BaseModel): username:str; password:str
-class StudentIn(BaseModel): biometric_id:str=Field(min_length=1,max_length=64); first_name:str=Field(min_length=1,max_length=160); last_name:str=Field(min_length=1,max_length=160); course_id:int=Field(ge=1,le=13); email:str|None=None; active:bool=True
+class StudentIn(BaseModel): biometric_id:str=Field(min_length=1,max_length=64); first_name:str=Field(min_length=1,max_length=160); last_name:str=Field(min_length=1,max_length=160); course_id:int=Field(ge=1,le=13); parallel_id:int|None=None; email:str|None=None; active:bool=True
 class StudentResetIn(BaseModel): confirmation:str
 class InspectorIn(BaseModel): first_name:str; last_name:str; username:str=Field(min_length=4); email:str|None=None; password:str='change-me'; type:str='CURSO'; course_ids:list[int]=[]; active:bool=True
 TIME_RE=r'^([01]\d|2[0-3]):[0-5]\d$'
@@ -92,28 +92,34 @@ def login(data:Login):
 def me(user=Depends(current_user)): return {'username':user['sub'],'role':user['role']}
 @app.get('/api/courses')
 def courses(user=Depends(current_admin)):
- with connect() as c:return c.execute('SELECT id,name,active FROM courses WHERE active ORDER BY id').fetchall()
+ with connect() as c:
+  rows=c.execute('SELECT id,name,active FROM courses WHERE active ORDER BY id').fetchall()
+  parallels=c.execute('SELECT id,course_id,code,active FROM course_parallels WHERE active ORDER BY course_id,code').fetchall()
+ return [{**dict(row),'parallels':[dict(p) for p in parallels if p['course_id']==row['id']]} for row in rows]
 def student_row(r): return {**r,'course':r.pop('course_name')}
 @app.get('/api/students')
-def list_students(search:str='',course_id:int|None=None,page:int=1,page_size:int=25,sort_by:str='last_name',sort_dir:str='asc',user=Depends(current_admin)):
+def list_students(search:str='',course_id:int|None=None,parallel_id:int|None=None,page:int=1,page_size:int=25,sort_by:str='last_name',sort_dir:str='asc',user=Depends(current_admin)):
  page=max(1,page); page_size=min(100,max(1,page_size)); order='biometric_id' if sort_by=='biometric_id' else 'last_names'; direction='DESC' if sort_dir=='desc' else 'ASC'; clauses=['s.active']; params=[]
  if course_id: clauses.append('s.course_id=%s'); params.append(course_id)
+ if parallel_id: clauses.append('s.parallel_id=%s'); params.append(parallel_id)
  if search: clauses.append("(s.first_names||' '||s.last_names||' '||s.biometric_id||' '||COALESCE(s.representative_email,'')) ILIKE %s"); params.append(f'%{search}%')
  where=' AND '.join(clauses)
  with connect() as c:
   total=c.execute(f'SELECT count(*) AS n FROM students s WHERE {where}',params).fetchone()['n']; params_page=params+[page_size,(page-1)*page_size]
-  rows=c.execute(f'''SELECT s.id,s.biometric_id,s.first_names AS first_name,s.last_names AS last_name,s.course_id,s.representative_email AS email,c.name AS course,s.active FROM students s JOIN courses c ON c.id=s.course_id WHERE {where} ORDER BY s.{order} {direction},s.id LIMIT %s OFFSET %s''',params_page).fetchall()
+  rows=c.execute(f'''SELECT s.id,s.biometric_id,s.first_names AS first_name,s.last_names AS last_name,s.course_id,s.parallel_id,p.code AS parallel,s.representative_email AS email,c.name AS course,s.active FROM students s JOIN courses c ON c.id=s.course_id LEFT JOIN course_parallels p ON p.id=s.parallel_id WHERE {where} ORDER BY s.{order} {direction},s.id LIMIT %s OFFSET %s''',params_page).fetchall()
  return {'items':[dict(r) for r in rows],'page':page,'page_size':page_size,'total':total,'pages':max(1,(total+page_size-1)//page_size)}
 @app.post('/api/students',status_code=201)
 def create_student(data:StudentIn,user=Depends(current_admin)):
  try:
   with connect() as c:
-   r=c.execute('''INSERT INTO students(biometric_id,first_names,last_names,course_id,representative_email,active) VALUES(%s,%s,%s,%s,%s,%s) RETURNING id''',(data.biometric_id.strip(),data.first_name.strip(),data.last_name.strip(),data.course_id,data.email or None,data.active)).fetchone(); c.commit(); return {'id':r['id'],**data.model_dump()}
+   if data.parallel_id is not None and not c.execute('SELECT 1 FROM course_parallels WHERE id=%s AND course_id=%s AND active',(data.parallel_id,data.course_id)).fetchone(): raise HTTPException(400,'El paralelo no pertenece al curso seleccionado')
+   r=c.execute('''INSERT INTO students(biometric_id,first_names,last_names,course_id,parallel_id,representative_email,active) VALUES(%s,%s,%s,%s,%s,%s,%s) RETURNING id''',(data.biometric_id.strip(),data.first_name.strip(),data.last_name.strip(),data.course_id,data.parallel_id,data.email or None,data.active)).fetchone(); c.commit(); return {'id':r['id'],**data.model_dump()}
  except Exception as e: raise HTTPException(409,'El ID biométrico ya existe o los datos no son válidos') from e
 @app.put('/api/students/{student_id}')
 def update_student(student_id:int,data:StudentIn,user=Depends(current_admin)):
  with connect() as c:
-  r=c.execute('''UPDATE students SET biometric_id=%s,first_names=%s,last_names=%s,course_id=%s,representative_email=%s,active=%s,updated_at=now() WHERE id=%s RETURNING id''',(data.biometric_id.strip(),data.first_name.strip(),data.last_name.strip(),data.course_id,data.email or None,data.active,student_id)).fetchone();
+  if data.parallel_id is not None and not c.execute('SELECT 1 FROM course_parallels WHERE id=%s AND course_id=%s AND active',(data.parallel_id,data.course_id)).fetchone(): raise HTTPException(400,'El paralelo no pertenece al curso seleccionado')
+  r=c.execute('''UPDATE students SET biometric_id=%s,first_names=%s,last_names=%s,course_id=%s,parallel_id=%s,representative_email=%s,active=%s,updated_at=now() WHERE id=%s RETURNING id''',(data.biometric_id.strip(),data.first_name.strip(),data.last_name.strip(),data.course_id,data.parallel_id,data.email or None,data.active,student_id)).fetchone();
   if not r: raise HTTPException(404,'Estudiante no encontrado')
   c.commit(); return {'id':student_id,**data.model_dump()}
 @app.delete('/api/students/{student_id}')
@@ -154,14 +160,20 @@ async def import_students(file:UploadFile=File(...),mode:str='append',user=Depen
   bid=str(row[idx['id']]).strip() if row[idx['id']] is not None else ''
   try: cid=int(row[idx['id de departamento']])
   except: cid=0
-  if not bid or bid in seen or cid not in range(1,14): errors.append({'row':n,'message':'ID biométrico vacío/repetido o curso inválido'}); continue
-  seen.add(bid); parsed.append((bid,str(row[idx['nombre']] or '').strip(),str(row[idx['apellido']] or '').strip(),cid,str(row[idx['email']]).strip() if row[idx['email']] else None))
+  parallel_code=str(row[idx['paralelo']]).strip().upper() if 'paralelo' in idx and row[idx['paralelo']] is not None else ''
+  if not bid or bid.upper()=='SIN ID' or bid in seen or cid not in range(1,14): errors.append({'row':n,'message':'ID biométrico vacío/repetido o curso inválido'}); continue
+  seen.add(bid); parsed.append((bid,str(row[idx['nombre']] or '').strip(),str(row[idx['apellido']] or '').strip(),cid,parallel_code,str(row[idx['email']]).strip() if row[idx['email']] else None))
  if errors and mode=='replace': return {'inserted':0,'errors':errors,'mode':mode}
  with connect() as c:
   if mode=='replace': c.execute('UPDATE students SET active=false,updated_at=now() WHERE active')
   inserted=0
   for item in parsed:
-   try: c.execute('''INSERT INTO students(biometric_id,first_names,last_names,course_id,representative_email) VALUES(%s,%s,%s,%s,%s) ON CONFLICT(biometric_id) DO UPDATE SET first_names=EXCLUDED.first_names,last_names=EXCLUDED.last_names,course_id=EXCLUDED.course_id,representative_email=EXCLUDED.representative_email,active=true,updated_at=now()''',item); inserted+=1
+   try:
+    bid,first,last,cid,parallel_code,email=item; parallel_id=None
+    if parallel_code:
+     c.execute('INSERT INTO course_parallels(course_id,code) VALUES(%s,%s) ON CONFLICT(course_id,code) DO UPDATE SET active=true RETURNING id',(cid,parallel_code))
+     parallel_id=c.fetchone()['id']
+    c.execute('''INSERT INTO students(biometric_id,first_names,last_names,course_id,parallel_id,representative_email) VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT(biometric_id) DO UPDATE SET first_names=EXCLUDED.first_names,last_names=EXCLUDED.last_names,course_id=EXCLUDED.course_id,parallel_id=EXCLUDED.parallel_id,representative_email=EXCLUDED.representative_email,active=true,updated_at=now()''',(bid,first,last,cid,parallel_id,email)); inserted+=1
    except Exception: errors.append({'message':f'No se pudo insertar {item[0]}'})
   c.execute('INSERT INTO import_runs(filename,mode,inserted_count,error_count,errors) VALUES(%s,%s,%s,%s,%s)',(file.filename,mode,inserted,len(errors),json.dumps(errors))); c.commit()
  return {'inserted':inserted,'errors':errors,'mode':mode}
@@ -235,19 +247,21 @@ def inspector_courses(user=Depends(current_user)):
           WHERE u.username=%s AND i.active ORDER BY c.id""",(user['sub'],)).fetchall()
         general=c.execute("""SELECT 1 FROM app_users u JOIN inspectors i ON i.user_id=u.id JOIN inspector_assignments a ON a.inspector_id=i.id AND a.active AND a.scope='GENERAL' WHERE u.username=%s AND i.active""",(user['sub'],)).fetchone()
         if general: rows=c.execute('SELECT id,name FROM courses WHERE active ORDER BY id').fetchall()
-    return rows
+        parallels=c.execute('SELECT id,course_id,code,active FROM course_parallels WHERE active ORDER BY course_id,code').fetchall()
+    return [{**dict(row),'parallels':[dict(p) for p in parallels if p['course_id']==row['id']]} for row in rows]
 @app.get('/api/inspector/attendance/today')
-def inspector_attendance_today(date:str|None=None,course_id:int|None=None,user=Depends(current_user)):
+def inspector_attendance_today(date:str|None=None,course_id:int|None=None,parallel_id:int|None=None,user=Depends(current_user)):
     if user.get('role')!='INSPECTOR': raise HTTPException(403,'Se requiere rol inspector')
     target=date or datetime.now(timezone.utc).date().isoformat(); params=[user['sub'],target]; course_clause=''
     if course_id: course_clause=' AND s.course_id=%s'; params.append(course_id)
+    if parallel_id: course_clause+=' AND s.parallel_id=%s'; params.append(parallel_id)
     with connect() as c:
         rows=c.execute(f"""SELECT s.id,s.biometric_id,s.first_names AS first_name,s.last_names AS last_name,
-          s.course_id,c.name AS course,d.status,d.first_entry_at,d.last_exit_at
+          s.course_id,c.name AS course,s.parallel_id,p.code AS parallel,d.status,d.first_entry_at,d.last_exit_at
           FROM app_users u JOIN inspectors i ON i.user_id=u.id JOIN inspector_assignments a ON a.inspector_id=i.id AND a.active
           JOIN students s ON s.active AND (a.scope='GENERAL' OR a.course_id=s.course_id)
-          JOIN courses c ON c.id=s.course_id LEFT JOIN daily_attendance d ON d.student_id=s.id AND d.attendance_date=%s
-          WHERE u.username=%s{course_clause} ORDER BY c.id,s.last_names,s.first_names""",[target,user['sub']]+([course_id] if course_id else [])).fetchall()
+          JOIN courses c ON c.id=s.course_id LEFT JOIN course_parallels p ON p.id=s.parallel_id LEFT JOIN daily_attendance d ON d.student_id=s.id AND d.attendance_date=%s
+          WHERE u.username=%s{course_clause} ORDER BY c.id,s.last_names,s.first_names""",[target,user['sub']]+([course_id] if course_id else [])+([parallel_id] if parallel_id else [])).fetchall()
     return [dict(r,status=r['status'] or 'ABSENT') for r in rows]
 @app.get('/api/attendance/summary')
 def attendance_summary(course_id:int|None=None,from_date:str|None=None,to_date:str|None=None,user=Depends(current_admin)):

@@ -1,5 +1,5 @@
 -- DMT Biometría · PostgreSQL
--- No existen paralelos: cada estudiante pertenece a un único curso.
+-- Cada estudiante pertenece a un curso y, opcionalmente, a un paralelo del curso.
 CREATE EXTENSION IF NOT EXISTS citext;
 
 CREATE TYPE user_role AS ENUM ('ADMINISTRATOR', 'INSPECTOR');
@@ -35,6 +35,16 @@ CREATE TABLE courses (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE course_parallels (
+  id BIGSERIAL PRIMARY KEY,
+  course_id SMALLINT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+  code VARCHAR(16) NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (course_id, code)
+);
+CREATE INDEX ix_course_parallels_course ON course_parallels(course_id, code);
+
 CREATE TABLE inspectors (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL UNIQUE REFERENCES app_users(id) ON DELETE RESTRICT,
@@ -67,12 +77,14 @@ CREATE TABLE students (
   first_names VARCHAR(160) NOT NULL,
   last_names VARCHAR(160) NOT NULL,
   course_id SMALLINT NOT NULL REFERENCES courses(id) ON DELETE RESTRICT,
+  parallel_id BIGINT REFERENCES course_parallels(id) ON DELETE RESTRICT,
   representative_email CITEXT,
   active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX ix_students_course_name ON students(course_id, last_names, first_names);
+CREATE INDEX ix_students_parallel_name ON students(parallel_id, last_names, first_names);
 CREATE INDEX ix_students_active ON students(active);
 
 -- Horario esperado para calcular presente, atrasado y ausente.

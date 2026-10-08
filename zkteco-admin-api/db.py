@@ -46,6 +46,17 @@ def init_db():
           last_used_at TIMESTAMPTZ
         )""")
         conn.execute("CREATE INDEX IF NOT EXISTS ix_api_keys_active ON api_keys(active)")
+        conn.execute("""CREATE TABLE IF NOT EXISTS course_parallels (
+          id BIGSERIAL PRIMARY KEY,
+          course_id SMALLINT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+          code VARCHAR(16) NOT NULL,
+          active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (course_id, code)
+        )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_course_parallels_course ON course_parallels(course_id, code)")
+        conn.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS parallel_id BIGINT REFERENCES course_parallels(id) ON DELETE RESTRICT")
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_students_parallel_name ON students(parallel_id, last_names, first_names)")
         conn.execute("ALTER TABLE course_schedules ADD COLUMN IF NOT EXISTS entry_start TIME NOT NULL DEFAULT '06:00'")
         conn.execute("ALTER TABLE course_schedules ADD COLUMN IF NOT EXISTS entry_end TIME NOT NULL DEFAULT '07:30'")
         conn.execute("ALTER TABLE course_schedules ADD COLUMN IF NOT EXISTS exit_start TIME NOT NULL DEFAULT '13:00'")
