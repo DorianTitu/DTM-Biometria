@@ -293,7 +293,7 @@ def inspector_attendance_today(date:str|None=None,course_id:int|None=None,parall
     if course_id: course_clause=' AND s.course_id=%s'; params.append(course_id)
     if parallel_id: course_clause+=' AND s.parallel_id=%s'; params.append(parallel_id)
     with connect() as c:
-        rows=c.execute(f"""SELECT s.id,s.biometric_id,s.first_names AS first_name,s.last_names AS last_name,
+        rows=c.execute(f"""SELECT s.id,s.biometric_id,s.first_names AS first_name,s.last_names AS last_name,s.representative_email,
           s.course_id,c.name AS course,s.parallel_id,p.code AS parallel,d.first_entry_at,d.last_exit_at
           FROM app_users u JOIN inspectors i ON i.user_id=u.id JOIN inspector_assignments a ON a.inspector_id=i.id AND a.active
           JOIN students s ON s.active AND (a.scope='GENERAL' OR a.course_id=s.course_id)
