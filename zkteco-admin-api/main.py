@@ -203,8 +203,7 @@ async def import_students(file:UploadFile=File(...),mode:str='append',user=Depen
   for item in parsed:
    try:
     bid,first,last,cid,parallel_code,email=item
-    c.execute('INSERT INTO course_parallels(course_id,code) VALUES(%s,%s) ON CONFLICT(course_id,code) DO UPDATE SET active=true RETURNING id',(cid,parallel_code))
-    parallel_id=c.fetchone()['id']
+    parallel_id=c.execute('INSERT INTO course_parallels(course_id,code) VALUES(%s,%s) ON CONFLICT(course_id,code) DO UPDATE SET active=true RETURNING id',(cid,parallel_code)).fetchone()['id']
     c.execute('''INSERT INTO students(biometric_id,first_names,last_names,course_id,parallel_id,representative_email) VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT(biometric_id) DO UPDATE SET first_names=EXCLUDED.first_names,last_names=EXCLUDED.last_names,course_id=EXCLUDED.course_id,parallel_id=EXCLUDED.parallel_id,representative_email=EXCLUDED.representative_email,active=true,updated_at=now()''',(bid,first,last,cid,parallel_id,email)); inserted+=1
    except Exception: errors.append({'message':f'No se pudo insertar {item[0]}'})
   c.execute('INSERT INTO import_runs(filename,mode,inserted_count,error_count,errors) VALUES(%s,%s,%s,%s,%s)',(file.filename,mode,inserted,len(errors),json.dumps(errors))); c.commit()
