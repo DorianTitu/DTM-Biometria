@@ -4,6 +4,7 @@ from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from db import connect, init_db, password_hash
@@ -299,6 +300,57 @@ def inspector_attendance_today(date:str|None=None,course_id:int|None=None,parall
           JOIN courses c ON c.id=s.course_id LEFT JOIN course_parallels p ON p.id=s.parallel_id LEFT JOIN daily_attendance d ON d.student_id=s.id AND d.attendance_date=%s
           WHERE u.username=%s{course_clause} ORDER BY c.id,s.last_names,s.first_names""",[target,user['sub']]+([course_id] if course_id else [])+([parallel_id] if parallel_id else [])).fetchall()
     return [dict(r) for r in rows]
+@app.get('/api/inspector/attendance/export')
+def export_inspector_attendance(course_id:int,date:str|None=None,user=Depends(current_user)):
+    if user.get('role')!='INSPECTOR': raise HTTPException(403,'Se requiere rol inspector')
+    from collections import defaultdict
+    from zoneinfo import ZoneInfo
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+    quito=ZoneInfo('America/Guayaquil')
+    try: target=datetime.fromisoformat(date).date() if date else datetime.now(quito).date()
+    except ValueError as e: raise HTTPException(400,'Fecha inválida') from e
+    with connect() as c:
+        allowed=c.execute("""SELECT 1 FROM app_users u JOIN inspectors i ON i.user_id=u.id AND i.active
+          JOIN inspector_assignments a ON a.inspector_id=i.id AND a.active
+          WHERE u.username=%s AND (a.scope='GENERAL' OR a.course_id=%s) LIMIT 1""",(user['sub'],course_id)).fetchone()
+        if not allowed: raise HTTPException(403,'No tiene acceso a este curso')
+        course=c.execute('SELECT id,name FROM courses WHERE id=%s AND active',(course_id,)).fetchone()
+        if not course: raise HTTPException(404,'Curso no encontrado')
+        schedule=c.execute('SELECT entry_end FROM course_schedules WHERE course_id=%s AND weekday=%s AND active',(course_id,target.isoweekday())).fetchone()
+        entry_end=str(schedule['entry_end'])[:5] if schedule else '07:30'
+        rows=c.execute("""SELECT s.biometric_id,s.first_names,s.last_names,COALESCE(p.code,'Sin paralelo') AS parallel,
+          d.first_entry_at,d.last_exit_at FROM students s LEFT JOIN course_parallels p ON p.id=s.parallel_id
+          LEFT JOIN daily_attendance d ON d.student_id=s.id AND d.attendance_date=%s
+          WHERE s.active AND s.course_id=%s ORDER BY p.code NULLS LAST,s.last_names,s.first_names""",(target,course_id)).fetchall()
+    grouped=defaultdict(list)
+    for row in rows: grouped[row['parallel']].append(row)
+    book=Workbook(); book.remove(book.active)
+    if not grouped: grouped['Sin estudiantes']=[]
+    for parallel,students in grouped.items():
+        title=f'Paralelo {parallel}'[:31]; sheet=book.create_sheet(title)
+        sheet.merge_cells('A1:E1'); sheet['A1']=f"{course['name']} · Paralelo {parallel}"
+        sheet['A1'].font=Font(name='Arial',size=14,bold=True,color='FFFFFF'); sheet['A1'].fill=PatternFill('solid',fgColor='123746'); sheet['A1'].alignment=Alignment(horizontal='center')
+        sheet.merge_cells('A2:E2'); sheet['A2']=f'Asistencia del {target.strftime("%d/%m/%Y")} · Entrada puntual hasta las {entry_end}'
+        sheet['A2'].font=Font(name='Arial',size=10,italic=True,color='52616B'); sheet['A2'].alignment=Alignment(horizontal='center')
+        headers=['ID biométrico','Estudiante','Ingreso','Salida','Estado']
+        for col,value in enumerate(headers,1):
+            cell=sheet.cell(4,col,value); cell.font=Font(name='Arial',bold=True,color='FFFFFF'); cell.fill=PatternFill('solid',fgColor='1F5A86'); cell.alignment=Alignment(horizontal='center')
+        for index,student in enumerate(students,5):
+            entry=student['first_entry_at']; exit_at=student['last_exit_at']
+            entry_time=entry.astimezone(quito).strftime('%H:%M') if entry else '—'; exit_time=exit_at.astimezone(quito).strftime('%H:%M') if exit_at else '—'
+            state='Sin registro' if not entry else ('Atrasado' if entry_time>entry_end else 'A tiempo')
+            values=[student['biometric_id'],f"{student['last_names']} {student['first_names']}",entry_time,exit_time,state]
+            for col,value in enumerate(values,1):
+                cell=sheet.cell(index,col,value); cell.font=Font(name='Arial',size=10); cell.alignment=Alignment(vertical='center')
+            color={'A tiempo':'E7F7F2','Atrasado':'FFF1DF','Sin registro':'FFF4CC'}[state]
+            sheet.cell(index,5).fill=PatternFill('solid',fgColor=color); sheet.cell(index,5).font=Font(name='Arial',size=10,bold=True)
+        for col,width in enumerate((18,42,14,14,18),1): sheet.column_dimensions[get_column_letter(col)].width=width
+        sheet.freeze_panes='A5'; sheet.auto_filter.ref=f'A4:E{max(4,len(students)+4)}'
+    content=BytesIO(); book.save(content); content.seek(0)
+    safe_course=''.join(ch if ch.isalnum() else '-' for ch in course['name']).strip('-').lower()
+    return StreamingResponse(content,media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':f'attachment; filename="asistencia-{safe_course}-{target.isoformat()}.xlsx"'})
 @app.get('/api/attendance/summary')
 def attendance_summary(course_id:int|None=None,from_date:str|None=None,to_date:str|None=None,user=Depends(current_admin)):
     clauses=['s.active']; where_params=[]; join_params=[]
