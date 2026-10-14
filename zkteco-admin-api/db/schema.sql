@@ -66,7 +66,8 @@ CREATE TABLE inspector_assignments (
   assigned_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CHECK ((scope = 'CURSO' AND course_id IS NOT NULL) OR (scope = 'GENERAL' AND course_id IS NULL))
 );
-CREATE UNIQUE INDEX uq_active_course_inspector ON inspector_assignments(course_id)
+-- Un curso puede estar supervisado por varios inspectores al mismo tiempo.
+CREATE INDEX ix_active_course_inspector ON inspector_assignments(course_id)
   WHERE active AND scope = 'CURSO';
 CREATE UNIQUE INDEX uq_active_general_inspector ON inspector_assignments(scope)
   WHERE active AND scope = 'GENERAL';
@@ -77,7 +78,7 @@ CREATE TABLE students (
   first_names VARCHAR(160) NOT NULL,
   last_names VARCHAR(160) NOT NULL,
   course_id SMALLINT NOT NULL REFERENCES courses(id) ON DELETE RESTRICT,
-  parallel_id BIGINT REFERENCES course_parallels(id) ON DELETE RESTRICT,
+  parallel_id BIGINT NOT NULL REFERENCES course_parallels(id) ON DELETE RESTRICT,
   representative_email CITEXT,
   active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -125,11 +126,10 @@ CREATE TABLE daily_attendance (
   student_id BIGINT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
   first_entry_at TIMESTAMPTZ,
   last_exit_at TIMESTAMPTZ,
-  status VARCHAR(20) NOT NULL CHECK (status IN ('PRESENT', 'LATE', 'ABSENT', 'NO_EXIT', 'UNKNOWN')),
   calculated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY(attendance_date, student_id)
 );
-CREATE INDEX ix_daily_attendance_date_status ON daily_attendance(attendance_date, status);
+CREATE INDEX ix_daily_attendance_date ON daily_attendance(attendance_date);
 CREATE INDEX ix_daily_attendance_student_date ON daily_attendance(student_id, attendance_date DESC);
 
 -- Una notificación por estudiante, fecha y tipo. El listener de correo consumirá esta cola.

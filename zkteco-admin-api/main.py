@@ -1,7 +1,7 @@
 from __future__ import annotations
 import base64, hashlib, hmac, json, os, secrets, time
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,7 +41,7 @@ def attendance_writer(request:Request):
                 return {'role':'LISTENER','api_key_id':key['id']}
     return current_admin(request)
 class Login(BaseModel): username:str; password:str
-class StudentIn(BaseModel): biometric_id:str=Field(min_length=1,max_length=64); first_name:str=Field(min_length=1,max_length=160); last_name:str=Field(min_length=1,max_length=160); course_id:int=Field(ge=1,le=13); parallel_id:int|None=None; email:str|None=None; active:bool=True
+class StudentIn(BaseModel): biometric_id:str=Field(min_length=1,max_length=64); first_name:str=Field(min_length=1,max_length=160); last_name:str=Field(min_length=1,max_length=160); course_id:int=Field(ge=1,le=13); parallel_id:int=Field(gt=0); email:str|None=None; active:bool=True
 class StudentResetIn(BaseModel): confirmation:str
 class InspectorIn(BaseModel): first_name:str; last_name:str; username:str=Field(min_length=4); email:str|None=None; password:str='change-me'; type:str='CURSO'; course_ids:list[int]=[]; active:bool=True
 TIME_RE=r'^([01]\d|2[0-3]):[0-5]\d$'
@@ -51,6 +51,26 @@ class ScheduleIn(BaseModel):
     entry_start:str=Field(default='06:00',pattern=TIME_RE); entry_end:str=Field(default='07:30',pattern=TIME_RE)
     exit_start:str=Field(default='13:00',pattern=TIME_RE); exit_end:str=Field(default='15:00',pattern=TIME_RE)
 class ApiKeyIn(BaseModel): name:str=Field(min_length=1,max_length=120)
+
+IMPORT_COURSES={
+ '1ro':1,'1ro basica':1,'2do':2,'2do basica':2,'3ro':3,'3ro basica':3,
+ '4to':4,'4to basica':4,'5to':5,'5to basica':5,'6to':6,'6to basica':6,
+ '7mo':7,'7mo basica':7,'8vo':8,'8vo basica':8,'9no':9,'9no basica':9,
+ '10mo':10,'10mo basica':10,'1ro bach':11,'1ro bachillerato':11,
+ '2do bach':12,'2do bachillerato':12,'3ro bach':13,'3ro bachillerato':13,
+}
+def import_text(value): return str(value or '').strip()
+def course_id_from_import(value):
+ text=' '.join(import_text(value).lower().replace('.', '').split())
+ if text.isdigit() and int(text) in range(1,14): return int(text)
+ return IMPORT_COURSES.get(text,0)
+def split_student_name(value):
+ words=import_text(value).split()
+ if len(words)<2: return '',''
+ # El listado institucional entrega primero los dos apellidos y luego los nombres.
+ last=' '.join(words[:2]) if len(words)>=3 else words[0]
+ first=' '.join(words[2:]) if len(words)>=3 else words[1]
+ return first,last
 app=FastAPI(title='DMT Biometría',version='2.0.0'); app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:5173'],allow_credentials=True,allow_methods=['*'],allow_headers=['*'])
 rate_buckets=defaultdict(deque)
 @app.on_event('startup')
@@ -151,28 +171,40 @@ def list_inspectors(user=Depends(current_admin)):
 @app.post('/api/students/import')
 async def import_students(file:UploadFile=File(...),mode:str='append',user=Depends(current_admin)):
  if not file.filename or not file.filename.lower().endswith(('.xlsx','.xlsm')): raise HTTPException(400,'Suba un archivo Excel .xlsx')
+ if mode not in ('append','replace'): raise HTTPException(400,'Modo de importación inválido')
  from openpyxl import load_workbook
- rows=list(load_workbook(BytesIO(await file.read()),read_only=True,data_only=True).active.iter_rows(values_only=True)); header=next(i for i,r in enumerate(rows) if r and str(r[0]).strip().upper()=='ID'); headers=[str(x).strip().lower() if x else '' for x in rows[header]]; idx={h:i for i,h in enumerate(headers)}; required=['id','nombre','apellido','id de departamento','email']; missing=[x for x in required if x not in idx]
- if missing: raise HTTPException(400,f'Faltan columnas: {", ".join(missing)}')
+ rows=list(load_workbook(BytesIO(await file.read()),read_only=True,data_only=True).active.iter_rows(values_only=True))
+ header=next((i for i,r in enumerate(rows) if r and import_text(r[0]).upper()=='ID'),None)
+ if header is None: raise HTTPException(400,'No se encontró la columna ID en el Excel')
+ headers=[import_text(x).lower() for x in rows[header]]; idx={h:i for i,h in enumerate(headers)}
+ source_format={'id','curso','paralelo','nombre del alumno','correo del representante'}
+ legacy_format={'id','nombre','apellido','id de departamento','email'}
+ is_source_format=source_format.issubset(idx)
+ if not is_source_format and not legacy_format.issubset(idx):
+  expected='ID, Curso, Paralelo, Nombre del Alumno, Correo del Representante'
+  raise HTTPException(400,f'El Excel debe incluir estas columnas: {expected}')
  parsed=[]; errors=[]; seen=set()
  for n,row in enumerate(rows[header+1:],header+2):
   if not any(v is not None for v in row): continue
-  bid=str(row[idx['id']]).strip() if row[idx['id']] is not None else ''
-  try: cid=int(row[idx['id de departamento']])
-  except: cid=0
-  parallel_code=str(row[idx['paralelo']]).strip().upper() if 'paralelo' in idx and row[idx['paralelo']] is not None else ''
-  if not bid or bid.upper()=='SIN ID' or bid in seen or cid not in range(1,14): errors.append({'row':n,'message':'ID biométrico vacío/repetido o curso inválido'}); continue
-  seen.add(bid); parsed.append((bid,str(row[idx['nombre']] or '').strip(),str(row[idx['apellido']] or '').strip(),cid,parallel_code,str(row[idx['email']]).strip() if row[idx['email']] else None))
+  bid=import_text(row[idx['id']])
+  if is_source_format:
+   cid=course_id_from_import(row[idx['curso']]); parallel_code=import_text(row[idx['paralelo']]).upper()
+   first,last=split_student_name(row[idx['nombre del alumno']]); email=import_text(row[idx['correo del representante']]) or None
+  else:
+   cid=course_id_from_import(row[idx['id de departamento']]); parallel_code=import_text(row[idx['paralelo']]).upper() if 'paralelo' in idx else ''
+   first,last=import_text(row[idx['nombre']]),import_text(row[idx['apellido']]); email=import_text(row[idx['email']]) or None
+  if not bid or bid.upper()=='SIN ID' or bid in seen or not first or not last or cid not in range(1,14) or not parallel_code:
+   errors.append({'row':n,'message':'ID biométrico vacío/repetido, nombre incompleto, curso o paralelo inválido'}); continue
+  seen.add(bid); parsed.append((bid,first,last,cid,parallel_code,email))
  if errors and mode=='replace': return {'inserted':0,'errors':errors,'mode':mode}
  with connect() as c:
   if mode=='replace': c.execute('UPDATE students SET active=false,updated_at=now() WHERE active')
   inserted=0
   for item in parsed:
    try:
-    bid,first,last,cid,parallel_code,email=item; parallel_id=None
-    if parallel_code:
-     c.execute('INSERT INTO course_parallels(course_id,code) VALUES(%s,%s) ON CONFLICT(course_id,code) DO UPDATE SET active=true RETURNING id',(cid,parallel_code))
-     parallel_id=c.fetchone()['id']
+    bid,first,last,cid,parallel_code,email=item
+    c.execute('INSERT INTO course_parallels(course_id,code) VALUES(%s,%s) ON CONFLICT(course_id,code) DO UPDATE SET active=true RETURNING id',(cid,parallel_code))
+    parallel_id=c.fetchone()['id']
     c.execute('''INSERT INTO students(biometric_id,first_names,last_names,course_id,parallel_id,representative_email) VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT(biometric_id) DO UPDATE SET first_names=EXCLUDED.first_names,last_names=EXCLUDED.last_names,course_id=EXCLUDED.course_id,parallel_id=EXCLUDED.parallel_id,representative_email=EXCLUDED.representative_email,active=true,updated_at=now()''',(bid,first,last,cid,parallel_id,email)); inserted+=1
    except Exception: errors.append({'message':f'No se pudo insertar {item[0]}'})
   c.execute('INSERT INTO import_runs(filename,mode,inserted_count,error_count,errors) VALUES(%s,%s,%s,%s,%s)',(file.filename,mode,inserted,len(errors),json.dumps(errors))); c.commit()
@@ -248,21 +280,26 @@ def inspector_courses(user=Depends(current_user)):
         general=c.execute("""SELECT 1 FROM app_users u JOIN inspectors i ON i.user_id=u.id JOIN inspector_assignments a ON a.inspector_id=i.id AND a.active AND a.scope='GENERAL' WHERE u.username=%s AND i.active""",(user['sub'],)).fetchone()
         if general: rows=c.execute('SELECT id,name FROM courses WHERE active ORDER BY id').fetchall()
         parallels=c.execute('SELECT id,course_id,code,active FROM course_parallels WHERE active ORDER BY course_id,code').fetchall()
-    return [{**dict(row),'parallels':[dict(p) for p in parallels if p['course_id']==row['id']]} for row in rows]
+        from zoneinfo import ZoneInfo
+        weekday=datetime.now(ZoneInfo('America/Guayaquil')).isoweekday()
+        schedules=c.execute('SELECT course_id,entry_end FROM course_schedules WHERE weekday=%s AND active',(weekday,)).fetchall()
+    entry_by_course={row['course_id']:str(row['entry_end'])[:5] for row in schedules}
+    return [{**dict(row),'entry_end':entry_by_course.get(row['id'],'07:30'),'parallels':[dict(p) for p in parallels if p['course_id']==row['id']]} for row in rows]
 @app.get('/api/inspector/attendance/today')
 def inspector_attendance_today(date:str|None=None,course_id:int|None=None,parallel_id:int|None=None,user=Depends(current_user)):
     if user.get('role')!='INSPECTOR': raise HTTPException(403,'Se requiere rol inspector')
-    target=date or datetime.now(timezone.utc).date().isoformat(); params=[user['sub'],target]; course_clause=''
+    from zoneinfo import ZoneInfo
+    target=date or datetime.now(ZoneInfo('America/Guayaquil')).date().isoformat(); params=[user['sub'],target]; course_clause=''
     if course_id: course_clause=' AND s.course_id=%s'; params.append(course_id)
     if parallel_id: course_clause+=' AND s.parallel_id=%s'; params.append(parallel_id)
     with connect() as c:
         rows=c.execute(f"""SELECT s.id,s.biometric_id,s.first_names AS first_name,s.last_names AS last_name,
-          s.course_id,c.name AS course,s.parallel_id,p.code AS parallel,d.status,d.first_entry_at,d.last_exit_at
+          s.course_id,c.name AS course,s.parallel_id,p.code AS parallel,d.first_entry_at,d.last_exit_at
           FROM app_users u JOIN inspectors i ON i.user_id=u.id JOIN inspector_assignments a ON a.inspector_id=i.id AND a.active
           JOIN students s ON s.active AND (a.scope='GENERAL' OR a.course_id=s.course_id)
           JOIN courses c ON c.id=s.course_id LEFT JOIN course_parallels p ON p.id=s.parallel_id LEFT JOIN daily_attendance d ON d.student_id=s.id AND d.attendance_date=%s
           WHERE u.username=%s{course_clause} ORDER BY c.id,s.last_names,s.first_names""",[target,user['sub']]+([course_id] if course_id else [])+([parallel_id] if parallel_id else [])).fetchall()
-    return [dict(r,status=r['status'] or 'ABSENT') for r in rows]
+    return [dict(r) for r in rows]
 @app.get('/api/attendance/summary')
 def attendance_summary(course_id:int|None=None,from_date:str|None=None,to_date:str|None=None,user=Depends(current_admin)):
     clauses=['s.active']; where_params=[]; join_params=[]
@@ -271,7 +308,7 @@ def attendance_summary(course_id:int|None=None,from_date:str|None=None,to_date:s
     if from_date: date_clause+=' AND d.attendance_date >= %s'; join_params.append(from_date)
     if to_date: date_clause+=' AND d.attendance_date <= %s'; join_params.append(to_date)
     with connect() as c:
-        rows=c.execute(f'''SELECT s.id,s.biometric_id,s.first_names AS first_name,s.last_names AS last_name,s.course_id,d.attendance_date,d.status,d.first_entry_at,d.last_exit_at FROM students s LEFT JOIN daily_attendance d ON d.student_id=s.id{date_clause} WHERE {' AND '.join(clauses)} ORDER BY s.last_names,s.first_names,d.attendance_date''',join_params+where_params).fetchall()
+        rows=c.execute(f'''SELECT s.id,s.biometric_id,s.first_names AS first_name,s.last_names AS last_name,s.course_id,d.attendance_date,d.first_entry_at,d.last_exit_at FROM students s LEFT JOIN daily_attendance d ON d.student_id=s.id{date_clause} WHERE {' AND '.join(clauses)} ORDER BY s.last_names,s.first_names,d.attendance_date''',join_params+where_params).fetchall()
     return [dict(r) for r in rows]
 @app.post('/api/attendance/events',status_code=201)
 def create_attendance_event(payload:dict,user=Depends(attendance_writer)):
@@ -294,22 +331,26 @@ def create_attendance_event(payload:dict,user=Depends(attendance_writer)):
             schedule=c.execute('SELECT entry_start,entry_end,exit_start,exit_end FROM course_schedules WHERE course_id=%s AND weekday=%s AND active',(s['course_id'],local_dt.isoweekday())).fetchone()
             window_ok=False
             if schedule:
-                start,end=(schedule['entry_start'],schedule['entry_end']) if event_type=='ENTRY' else (schedule['exit_start'],schedule['exit_end'])
+                if event_type=='ENTRY':
+                    start=schedule['entry_start']
+                    # Una hora posterior al límite puntual sigue siendo un ingreso válido.
+                    # La condición de atraso se calcula después, al consultar la asistencia.
+                    end=(datetime.combine(day,schedule['entry_end'])+timedelta(hours=1)).time()
+                else:
+                    start,end=schedule['exit_start'],schedule['exit_end']
             else:
-                start,end=(datetime.strptime('06:00','%H:%M').time(),datetime.strptime('07:30','%H:%M').time()) if event_type=='ENTRY' else (datetime.strptime('13:00','%H:%M').time(),datetime.strptime('15:00','%H:%M').time())
+                start,end=(datetime.strptime('06:00','%H:%M').time(),datetime.strptime('08:30','%H:%M').time()) if event_type=='ENTRY' else (datetime.strptime('13:00','%H:%M').time(),datetime.strptime('15:00','%H:%M').time())
             window_ok=start <= local_dt.time() <= end
-            daily=c.execute('SELECT first_entry_at,last_exit_at,status FROM daily_attendance WHERE attendance_date=%s AND student_id=%s FOR UPDATE',(day,s['id'])).fetchone()
+            daily=c.execute('SELECT first_entry_at,last_exit_at FROM daily_attendance WHERE attendance_date=%s AND student_id=%s FOR UPDATE',(day,s['id'])).fetchone()
             canonical=window_ok and (daily is None or (daily['first_entry_at'] is None if event_type=='ENTRY' else daily['last_exit_at'] is None))
-            status='PRESENT'
             if window_ok and event_type=='ENTRY':
-                c.execute("""INSERT INTO daily_attendance(attendance_date,student_id,first_entry_at,status)
-                  VALUES(%s,%s,%s,%s) ON CONFLICT (attendance_date,student_id) DO UPDATE SET
+                c.execute("""INSERT INTO daily_attendance(attendance_date,student_id,first_entry_at)
+                  VALUES(%s,%s,%s) ON CONFLICT (attendance_date,student_id) DO UPDATE SET
                     first_entry_at=COALESCE(daily_attendance.first_entry_at,EXCLUDED.first_entry_at),
-                    status=CASE WHEN daily_attendance.first_entry_at IS NULL THEN EXCLUDED.status ELSE daily_attendance.status END,
-                    calculated_at=now()""",(day,s['id'],occurred_at,status))
+                    calculated_at=now()""",(day,s['id'],occurred_at))
             elif window_ok:
-                c.execute("""INSERT INTO daily_attendance(attendance_date,student_id,last_exit_at,status)
-                  VALUES(%s,%s,%s,'UNKNOWN') ON CONFLICT (attendance_date,student_id) DO UPDATE SET
+                c.execute("""INSERT INTO daily_attendance(attendance_date,student_id,last_exit_at)
+                  VALUES(%s,%s,%s) ON CONFLICT (attendance_date,student_id) DO UPDATE SET
                     last_exit_at=COALESCE(daily_attendance.last_exit_at,EXCLUDED.last_exit_at), calculated_at=now()""",(day,s['id'],occurred_at))
             if canonical and window_ok:
                 queued=c.execute("""INSERT INTO attendance_notifications(attendance_date,student_id,event_type)

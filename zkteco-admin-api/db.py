@@ -55,12 +55,34 @@ def init_db():
           UNIQUE (course_id, code)
         )""")
         conn.execute("CREATE INDEX IF NOT EXISTS ix_course_parallels_course ON course_parallels(course_id, code)")
+        # La primera versión restringía cada curso a un único inspector activo.
+        # Se conserva la asignación actual y se elimina únicamente esa restricción.
+        conn.execute("DROP INDEX IF EXISTS uq_active_course_inspector")
+        conn.execute("""CREATE INDEX IF NOT EXISTS ix_active_course_inspector
+          ON inspector_assignments(course_id) WHERE active AND scope = 'CURSO'""")
         conn.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS parallel_id BIGINT REFERENCES course_parallels(id) ON DELETE RESTRICT")
         conn.execute("CREATE INDEX IF NOT EXISTS ix_students_parallel_name ON students(parallel_id, last_names, first_names)")
+        # La asistencia persiste únicamente sus horas; el estado se calcula al consultar el horario del curso.
+        conn.execute("ALTER TABLE daily_attendance DROP COLUMN IF EXISTS status")
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_daily_attendance_date ON daily_attendance(attendance_date)")
         conn.execute("ALTER TABLE course_schedules ADD COLUMN IF NOT EXISTS entry_start TIME NOT NULL DEFAULT '06:00'")
         conn.execute("ALTER TABLE course_schedules ADD COLUMN IF NOT EXISTS entry_end TIME NOT NULL DEFAULT '07:30'")
         conn.execute("ALTER TABLE course_schedules ADD COLUMN IF NOT EXISTS exit_start TIME NOT NULL DEFAULT '13:00'")
         conn.execute("ALTER TABLE course_schedules ADD COLUMN IF NOT EXISTS exit_end TIME NOT NULL DEFAULT '15:00'")
+        # Cada curso inicia con los paralelos operativos habituales; la importación puede añadir otros.
+        conn.execute("""INSERT INTO course_parallels(course_id,code)
+          SELECT c.id, p.code FROM courses c CROSS JOIN (VALUES ('A'),('B'),('C'),('D'),('E'),('F')) AS p(code)
+          ON CONFLICT(course_id,code) DO UPDATE SET active=true""")
         conn.execute("INSERT INTO app_users(username,password_hash,role) VALUES (%s,%s,'ADMINISTRATOR') ON CONFLICT(username) DO NOTHING", ('admin.demo', password_hash('admin12345')))
-        conn.execute("INSERT INTO students(biometric_id,first_names,last_names,course_id,representative_email) VALUES ('1001','JOAN SEBASTIAN','ARMIJOS TORRES',1,'dyaniliz@hotmail.com'),('1002','MARIA JOSE','CASTRO VEGA',8,NULL),('1003','DANIEL','MOLINA ROJAS',11,'familia@example.com') ON CONFLICT(biometric_id) DO NOTHING")
+        conn.execute("""INSERT INTO course_parallels(course_id,code) VALUES (1,'A'),(8,'A'),(11,'A')
+          ON CONFLICT(course_id,code) DO NOTHING""")
+        conn.execute("""INSERT INTO students(biometric_id,first_names,last_names,course_id,parallel_id,representative_email)
+          VALUES ('1001','JOAN SEBASTIAN','ARMIJOS TORRES',1,(SELECT id FROM course_parallels WHERE course_id=1 AND code='A'),'dyaniliz@hotmail.com'),
+                 ('1002','MARIA JOSE','CASTRO VEGA',8,(SELECT id FROM course_parallels WHERE course_id=8 AND code='A'),NULL),
+                 ('1003','DANIEL','MOLINA ROJAS',11,(SELECT id FROM course_parallels WHERE course_id=11 AND code='A'),'familia@example.com')
+          ON CONFLICT(biometric_id) DO NOTHING""")
+        # Solo los registros de demostración reciben una asignación automática. Los datos reales no se alteran.
+        conn.execute("""UPDATE students s SET parallel_id=p.id FROM course_parallels p
+          WHERE s.parallel_id IS NULL AND p.code='A' AND p.course_id=s.course_id
+            AND s.biometric_id IN ('1001','1002','1003')""")
         conn.commit()
