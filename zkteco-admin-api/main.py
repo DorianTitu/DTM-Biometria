@@ -301,7 +301,7 @@ def inspector_attendance_today(date:str|None=None,course_id:int|None=None,parall
           WHERE u.username=%s{course_clause} ORDER BY c.id,s.last_names,s.first_names""",[target,user['sub']]+([course_id] if course_id else [])+([parallel_id] if parallel_id else [])).fetchall()
     return [dict(r) for r in rows]
 @app.get('/api/inspector/attendance/export')
-def export_inspector_attendance(course_id:int,date:str|None=None,user=Depends(current_user)):
+def export_inspector_attendance(course_id:int,date:str|None=None,parallel_id:int|None=None,user=Depends(current_user)):
     if user.get('role')!='INSPECTOR': raise HTTPException(403,'Se requiere rol inspector')
     from collections import defaultdict
     from zoneinfo import ZoneInfo
@@ -318,12 +318,17 @@ def export_inspector_attendance(course_id:int,date:str|None=None,user=Depends(cu
         if not allowed: raise HTTPException(403,'No tiene acceso a este curso')
         course=c.execute('SELECT id,name FROM courses WHERE id=%s AND active',(course_id,)).fetchone()
         if not course: raise HTTPException(404,'Curso no encontrado')
+        selected_parallel=None
+        if parallel_id:
+            selected_parallel=c.execute('SELECT id,code FROM course_parallels WHERE id=%s AND course_id=%s AND active',(parallel_id,course_id)).fetchone()
+            if not selected_parallel: raise HTTPException(404,'Paralelo no encontrado para este curso')
         schedule=c.execute('SELECT entry_end FROM course_schedules WHERE course_id=%s AND weekday=%s AND active',(course_id,target.isoweekday())).fetchone()
         entry_end=str(schedule['entry_end'])[:5] if schedule else '07:30'
-        rows=c.execute("""SELECT s.biometric_id,s.first_names,s.last_names,COALESCE(p.code,'Sin paralelo') AS parallel,
+        parallel_clause=' AND s.parallel_id=%s' if parallel_id else ''
+        rows=c.execute(f"""SELECT s.biometric_id,s.first_names,s.last_names,COALESCE(p.code,'Sin paralelo') AS parallel,
           d.first_entry_at,d.last_exit_at FROM students s LEFT JOIN course_parallels p ON p.id=s.parallel_id
           LEFT JOIN daily_attendance d ON d.student_id=s.id AND d.attendance_date=%s
-          WHERE s.active AND s.course_id=%s ORDER BY p.code NULLS LAST,s.last_names,s.first_names""",(target,course_id)).fetchall()
+          WHERE s.active AND s.course_id=%s{parallel_clause} ORDER BY p.code NULLS LAST,s.last_names,s.first_names""",[target,course_id]+([parallel_id] if parallel_id else [])).fetchall()
     grouped=defaultdict(list)
     for row in rows: grouped[row['parallel']].append(row)
     book=Workbook(); book.remove(book.active)
@@ -350,7 +355,8 @@ def export_inspector_attendance(course_id:int,date:str|None=None,user=Depends(cu
         sheet.freeze_panes='A5'; sheet.auto_filter.ref=f'A4:E{max(4,len(students)+4)}'
     content=BytesIO(); book.save(content); content.seek(0)
     safe_course=''.join(ch if ch.isalnum() else '-' for ch in course['name']).strip('-').lower()
-    return StreamingResponse(content,media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':f'attachment; filename="asistencia-{safe_course}-{target.isoformat()}.xlsx"'})
+    safe_parallel=f"-paralelo-{selected_parallel['code'].lower()}" if selected_parallel else ''
+    return StreamingResponse(content,media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':f'attachment; filename="asistencia-{safe_course}{safe_parallel}-{target.isoformat()}.xlsx"'})
 @app.get('/api/attendance/summary')
 def attendance_summary(course_id:int|None=None,from_date:str|None=None,to_date:str|None=None,user=Depends(current_admin)):
     clauses=['s.active']; where_params=[]; join_params=[]
