@@ -58,8 +58,11 @@ def init_db():
         # La primera versión restringía cada curso a un único inspector activo.
         # Se conserva la asignación actual y se elimina únicamente esa restricción.
         conn.execute("DROP INDEX IF EXISTS uq_active_course_inspector")
+        conn.execute("DROP INDEX IF EXISTS uq_active_general_inspector")
         conn.execute("""CREATE INDEX IF NOT EXISTS ix_active_course_inspector
           ON inspector_assignments(course_id) WHERE active AND scope = 'CURSO'""")
+        conn.execute("""CREATE INDEX IF NOT EXISTS ix_active_general_inspector
+          ON inspector_assignments(scope) WHERE active AND scope = 'GENERAL'""")
         conn.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS parallel_id BIGINT REFERENCES course_parallels(id) ON DELETE RESTRICT")
         conn.execute("CREATE INDEX IF NOT EXISTS ix_students_parallel_name ON students(parallel_id, last_names, first_names)")
         # La asistencia persiste únicamente sus horas; el estado se calcula al consultar el horario del curso.

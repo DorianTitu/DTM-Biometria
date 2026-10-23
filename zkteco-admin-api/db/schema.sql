@@ -69,7 +69,8 @@ CREATE TABLE inspector_assignments (
 -- Un curso puede estar supervisado por varios inspectores al mismo tiempo.
 CREATE INDEX ix_active_course_inspector ON inspector_assignments(course_id)
   WHERE active AND scope = 'CURSO';
-CREATE UNIQUE INDEX uq_active_general_inspector ON inspector_assignments(scope)
+-- Varios inspectores pueden tener alcance GENERAL al mismo tiempo.
+CREATE INDEX ix_active_general_inspector ON inspector_assignments(scope)
   WHERE active AND scope = 'GENERAL';
 
 CREATE TABLE students (

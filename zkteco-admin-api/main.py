@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from psycopg.errors import UniqueViolation
 from db import connect, init_db, password_hash
 
 SECRET=os.getenv('JWT_SECRET','dmt-demo-secret-change-in-production').encode(); JWT_TTL=60*60*8
@@ -223,7 +224,11 @@ def create_inspector(data:InspectorIn,user=Depends(current_admin)):
             else:
                 for course_id in ids: c.execute("INSERT INTO inspector_assignments(inspector_id,scope,course_id) VALUES(%s,'CURSO',%s)",(i['id'],course_id))
             c.commit(); return {'id':i['id'],**data.model_dump(exclude={'password'}),'course_ids':ids}
-        except Exception as e: c.rollback(); raise HTTPException(409,'El usuario o la asignación ya existe') from e
+        except UniqueViolation as e:
+            c.rollback()
+            if e.diag.constraint_name == 'app_users_username_key':
+                raise HTTPException(409,'Ese nombre de usuario ya está registrado') from e
+            raise HTTPException(409,'No se pudo crear la asignación del inspector') from e
 @app.put('/api/inspectors/{inspector_id}')
 def update_inspector(inspector_id:int,data:InspectorIn,user=Depends(current_admin)):
     ids=sorted(set(data.course_ids))
