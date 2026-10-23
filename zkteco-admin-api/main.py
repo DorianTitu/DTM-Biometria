@@ -291,22 +291,32 @@ def inspector_courses(user=Depends(current_user)):
     entry_by_course={row['course_id']:str(row['entry_end'])[:5] for row in schedules}
     return [{**dict(row),'entry_end':entry_by_course.get(row['id'],'07:30'),'parallels':[dict(p) for p in parallels if p['course_id']==row['id']]} for row in rows]
 @app.get('/api/inspector/attendance/today')
-def inspector_attendance_today(date:str|None=None,course_id:int|None=None,parallel_id:int|None=None,page:int=1,page_size:int=20,user=Depends(current_user)):
+def inspector_attendance_today(date:str|None=None,course_id:int|None=None,parallel_id:int|None=None,status:str='ALL',page:int=1,page_size:int=20,user=Depends(current_user)):
     if user.get('role')!='INSPECTOR': raise HTTPException(403,'Se requiere rol inspector')
     from zoneinfo import ZoneInfo
     try: target=datetime.fromisoformat(date).date() if date else datetime.now(ZoneInfo('America/Guayaquil')).date()
     except ValueError as e: raise HTTPException(400,'Fecha inválida') from e
+    status=status.upper()
+    if status not in {'ALL','PRESENT','LATE','PENDING'}: raise HTTPException(400,'Estado de asistencia inválido')
     page=max(1,page); page_size=min(max(1,page_size),20); course_clause=''; filters=[]
     if course_id: course_clause=' AND s.course_id=%s'
     if parallel_id: course_clause+=' AND s.parallel_id=%s'
     if course_id: filters.append(course_id)
     if parallel_id: filters.append(parallel_id)
+    status_clause={
+        'ALL':'',
+        'PENDING':' AND d.first_entry_at IS NULL',
+        'PRESENT':" AND d.first_entry_at IS NOT NULL AND (d.first_entry_at AT TIME ZONE 'America/Guayaquil')::time <= COALESCE(h.entry_end,'07:30')",
+        'LATE':" AND d.first_entry_at IS NOT NULL AND (d.first_entry_at AT TIME ZONE 'America/Guayaquil')::time > COALESCE(h.entry_end,'07:30')",
+    }[status]
     with connect() as c:
-        params=[target,user['sub']]+filters
+        attendance_params=[target,target.isoweekday(),user['sub']]+filters
         total=c.execute(f"""SELECT COUNT(DISTINCT s.id) AS total
           FROM app_users u JOIN inspectors i ON i.user_id=u.id JOIN inspector_assignments a ON a.inspector_id=i.id AND a.active
           JOIN students s ON s.active AND (a.scope='GENERAL' OR a.course_id=s.course_id)
-          WHERE u.username=%s{course_clause}""",[user['sub']]+filters).fetchone()['total']
+          LEFT JOIN daily_attendance d ON d.student_id=s.id AND d.attendance_date=%s
+          LEFT JOIN course_schedules h ON h.course_id=s.course_id AND h.weekday=%s AND h.active
+          WHERE u.username=%s{course_clause}{status_clause}""",attendance_params).fetchone()['total']
         metric=c.execute(f"""SELECT
           COUNT(DISTINCT s.id) AS total,
           COUNT(DISTINCT s.id) FILTER (WHERE d.first_entry_at IS NULL) AS pending,
@@ -315,16 +325,18 @@ def inspector_attendance_today(date:str|None=None,course_id:int|None=None,parall
           JOIN students s ON s.active AND (a.scope='GENERAL' OR a.course_id=s.course_id)
           LEFT JOIN daily_attendance d ON d.student_id=s.id AND d.attendance_date=%s
           LEFT JOIN course_schedules h ON h.course_id=s.course_id AND h.weekday=%s AND h.active
-          WHERE u.username=%s{course_clause}""",[target,target.isoweekday(),user['sub']]+filters).fetchone()
+          WHERE u.username=%s{course_clause}""",attendance_params).fetchone()
         entry_end=c.execute('SELECT entry_end FROM course_schedules WHERE course_id=%s AND weekday=%s AND active',(course_id,target.isoweekday())).fetchone() if course_id else None
         rows=c.execute(f"""SELECT DISTINCT s.id,s.biometric_id,s.first_names AS first_name,s.last_names AS last_name,s.representative_email,
           s.course_id,c.name AS course,s.parallel_id,p.code AS parallel,d.first_entry_at,d.last_exit_at
           FROM app_users u JOIN inspectors i ON i.user_id=u.id JOIN inspector_assignments a ON a.inspector_id=i.id AND a.active
           JOIN students s ON s.active AND (a.scope='GENERAL' OR a.course_id=s.course_id)
-          JOIN courses c ON c.id=s.course_id LEFT JOIN course_parallels p ON p.id=s.parallel_id LEFT JOIN daily_attendance d ON d.student_id=s.id AND d.attendance_date=%s
-          WHERE u.username=%s{course_clause} ORDER BY s.course_id,s.last_names,s.first_names LIMIT %s OFFSET %s""",params+[page_size,(page-1)*page_size]).fetchall()
+          JOIN courses c ON c.id=s.course_id LEFT JOIN course_parallels p ON p.id=s.parallel_id
+          LEFT JOIN daily_attendance d ON d.student_id=s.id AND d.attendance_date=%s
+          LEFT JOIN course_schedules h ON h.course_id=s.course_id AND h.weekday=%s AND h.active
+          WHERE u.username=%s{course_clause}{status_clause} ORDER BY s.course_id,s.last_names,s.first_names LIMIT %s OFFSET %s""",attendance_params+[page_size,(page-1)*page_size]).fetchall()
     pages=max(1,(total+page_size-1)//page_size)
-    return {'items':[dict(r) for r in rows],'total':total,'page':min(page,pages),'page_size':page_size,'pages':pages,'date':target.isoformat(),'entry_end':str(entry_end['entry_end'])[:5] if entry_end else '07:30','metrics':dict(metric)}
+    return {'items':[dict(r) for r in rows],'total':total,'page':min(page,pages),'page_size':page_size,'pages':pages,'date':target.isoformat(),'entry_end':str(entry_end['entry_end'])[:5] if entry_end else '07:30','status':status,'metrics':dict(metric)}
 @app.get('/api/inspector/attendance/export')
 def export_inspector_attendance(course_id:int,date:str|None=None,parallel_id:int|None=None,user=Depends(current_user)):
     if user.get('role')!='INSPECTOR': raise HTTPException(403,'Se requiere rol inspector')
